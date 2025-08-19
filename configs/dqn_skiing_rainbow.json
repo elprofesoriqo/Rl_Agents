@@ -1,0 +1,37 @@
+{
+  "agent_type": "dqn",
+  "env": {
+    "id": "ALE/Skiing-v5",
+    "kwargs": {},
+    "seed": 42
+  },
+  "train": {
+    "learning_rate": 0.0001,
+    "use_rmsprop": true,
+    "gamma": 0.99,
+    "epsilon_start": 0.0,
+    "epsilon_end": 0.0,
+    "epsilon_decay": 1,
+    "memory_size": 1000000,
+    "batch_size": 32,
+    "target_update": 8000,
+    "num_episodes": 200,
+    "render_every": 0,
+    "max_steps_per_episode": null,
+    "save_every": 100,
+    "checkpoint_path": "checkpoints/dqn_rainbow_ep{EPISODE}.pth",
+    "log_dir": "runs/dqn_rainbow",
+    "stats_window": 100,
+    "reward_clip": null,
+    "warmup_steps": 5000,
+    "reward_log_every": null
+  },
+  "model": {
+    "network_type": "rainbow",
+    "input_shape": [4, 84, 84],
+    "n_atoms": 51,
+    "v_min": -200,
+    "v_max": 50,
+    "noisy": true
+  }
+}

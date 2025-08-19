@@ -1,0 +1,23 @@
+{
+  "agent_type": "policy_gradient",
+  "env": {
+    "id": "CartPole-v1",
+    "seed": 42
+  },
+  "model": {
+    "hidden_dim": 128
+  },
+  "train": {
+    "num_episodes": 1000,
+    "gamma": 0.99,
+    "policy_lr": 1e-3,
+    "value_lr": 1e-3,
+    "use_baseline": true,
+    "max_episode_length": 500,
+    "max_grad_norm": 10.0,
+    "save_every": 100,
+    "stats_window": 100,
+    "experiments_dir": "experiments",
+    "render_every": 1
+  }
+}
