@@ -1,4 +1,4 @@
-# Gradient RL
+# Rl Agents
 
 A clean, extensible reinforcement learning framework built with PyTorch. Implements classical RL algorithms with proper experiment tracking and visualization tools.
 
