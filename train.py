@@ -3,6 +3,7 @@ import sys
 import json
 from models.value_based import DQNModel, DoubleDQNModel, RainbowModel
 from models.policy_based import PolicyGradientAgent
+from models.actor_critic import A2CModel, A3CModel, AdversarialA2CModel
 
 def create_agent(config: dict):
     """Create agent based on config."""
@@ -16,8 +17,14 @@ def create_agent(config: dict):
         return RainbowModel(config)
     elif agent_type == "policy_gradient" or agent_type == "reinforce":
         return PolicyGradientAgent(config)
+    elif agent_type == "a2c":
+        return A2CModel(config)
+    elif agent_type == "a3c":
+        return A3CModel(config)
+    elif agent_type == "adversarial_a2c":
+        return AdversarialA2CModel(config)
     else:
-        available_types = ["dqn", "ddqn", "rainbow", "policy_gradient"]
+        available_types = ["dqn", "ddqn", "rainbow", "policy_gradient", "a2c", "a3c", "adversarial_a2c"]
         print(f"Error: Unknown agent type '{agent_type}'")
         print(f"Available types: {available_types}")
         sys.exit(1)
