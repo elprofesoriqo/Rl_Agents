@@ -14,7 +14,7 @@
     "value_lr": 1e-3,
     "use_baseline": true,
     "max_episode_length": 500,
-    "max_grad_norm": 10.0,
+    "gradient_clip": 10.0,
     "save_every": 100,
     "stats_window": 100,
     "experiments_dir": "experiments",
