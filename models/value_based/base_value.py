@@ -4,8 +4,7 @@ from typing import Any, Dict, Tuple, List
 from abc import abstractmethod
 
 from ..base_trainer import BaseTrainer
-from games.replay_buffer import ReplayBuffer  
-from games.atari_env import AtariGame
+from games.replay_buffer import ReplayBuffer
 
 class ValueBasedModel(BaseTrainer):
     """
@@ -22,21 +21,13 @@ class ValueBasedModel(BaseTrainer):
         self.warmup_steps = self.train_cfg.get("warmup_steps", 1000)
         self.steps_done = 0
         
-        self.game = AtariGame(
-            self.env_cfg["id"], 
-            self.env_cfg.get("kwargs", {}), 
-            self.env_cfg.get("seed")
-        )
-        self.n_actions = self.game.action_space_n
+        self.n_actions = self.env.action_space_n
         self.input_shape = tuple(self.model_cfg.get("input_shape", (4, 84, 84)))
         self.memory = ReplayBuffer(self.train_cfg.get("memory_size", 1_000_000))
         self.reward_clip = self.train_cfg.get("reward_clip", None)
         
         self.create_networks()
         self.optimizer = self._setup_optimizer(self.q_network)
-        
-        experiment_name = f"{self.get_algorithm_name()}_{self.env_cfg['id'].split('/')[-1].replace('-v5', '')}"
-        self._setup_experiment_logging(experiment_name)
 
     def epsilon(self) -> float:
         """Current epsilon value for epsilon-greedy exploration"""
@@ -64,7 +55,6 @@ class ValueBasedModel(BaseTrainer):
         if hasattr(self, '_custom_act'):
             return self._custom_act(state)
         
-        # Standard epsilon-greedy
         if np.random.rand() < self.epsilon():
             return np.random.randint(self.n_actions)
         with torch.no_grad():
@@ -81,13 +71,13 @@ class ValueBasedModel(BaseTrainer):
 
     def run_episode(self, episode: int, render_every: int) -> Tuple[float, int, List[float]]:
         """Run single episode for DQN variants"""
-        obs, _ = self.game.reset()
+        obs, _ = self.env.reset()
         state = obs
         render_this = render_every and (episode % render_every == 0)
         
         if render_this:
             try:
-                self.game.reset_render()
+                self.env.reset_render()
             except Exception:
                 render_this = False
 
@@ -98,11 +88,11 @@ class ValueBasedModel(BaseTrainer):
         
         while True:
             action = self.act(state)
-            next_obs, reward, terminated, truncated, _ = self.game.step(action)
+            next_obs, reward, terminated, truncated, _ = self.env.step(action)
             
             if render_this:
                 try:
-                    self.game.step_render(action)
+                    self.env.step_render(action)
                 except Exception:
                     render_this = False
                     
