@@ -1,67 +1,55 @@
 import os
 import sys
 import json
-from models.dqn import DQNAgent
-from models.policy_gradient import PolicyGradientAgent
+from models.value_based import DQNModel, DoubleDQNModel
+from models.policy_based import PolicyGradientAgent
+from models.actor_critic import A2CModel, AdversarialA2CModel
 
-
-def load_config(config_file: str) -> dict:
-    """Load configuration from JSON file"""
-    if not os.path.exists(config_file):
-        sys.exit(1)
+def create_agent(config: dict):
+    """Create agent based on config."""
+    agent_type = config["agent_type"]
     
+    if agent_type == "dqn":
+        return DQNModel(config)
+    elif agent_type == "ddqn" or agent_type == "double_dqn":
+        return DoubleDQNModel(config)
+
+    elif agent_type == "policy_gradient" or agent_type == "reinforce":
+        return PolicyGradientAgent(config)
+    elif agent_type == "a2c":
+        return A2CModel(config)
+
+    elif agent_type == "adversarial_a2c":
+        return AdversarialA2CModel(config)
+    else:
+        available_types = ["dqn", "ddqn", "rainbow", "policy_gradient", "a2c", "a3c", "adversarial_a2c"]
+        print(f"Error: Unknown agent type '{agent_type}'")
+        print(f"Available types: {available_types}")
+        sys.exit(1)
+
+def main():
+    config_file = sys.argv[1]
     try:
         with open(config_file, 'r') as f:
             config = json.load(f)
-    except (json.JSONDecodeError, Exception):
+    except FileNotFoundError:
+        print(f"Error: Config file '{config_file}' not found.")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in config file: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error loading config: {e}")
         sys.exit(1)
     
-    # Validate required sections
-    required_sections = ['env', 'train', 'model']
-    for section in required_sections:
-        if section not in config:
-            sys.exit(1)
-    
-    # Validate required environment parameters
-    if 'id' not in config['env']:
-        sys.exit(1)
-    
-    # Validate required agent type
-    if 'agent_type' not in config:
-        sys.exit(1)
-    
-    return config
-
-
-
-
-def main():
-    if len(sys.argv) != 2:
-        sys.exit(1)
-    
-    config_file = sys.argv[1]
-    
-    # Load configuration
-    config = load_config(config_file)
-    
-    # Ensure experiments directory exists
     experiments_dir = config["train"].get("experiments_dir", "experiments")
     os.makedirs(experiments_dir, exist_ok=True)
+    print(f"Loading config: {config_file}")
+    print(f"Agent type: {config['agent_type']}")
+    print(f"Environment: {config['env']['id']}")
     
-    
-    # Initialize agent based on type
-    agent_type = config["agent_type"]
-    if agent_type == "dqn":
-        agent = DQNAgent(config)
-    elif agent_type == "policy_gradient":
-        agent = PolicyGradientAgent(config)
-    else:
-        print(f"Error: Unknown agent type '{agent_type}'")
-        sys.exit(1)
-    
-    # Start training
+    agent = create_agent(config)
     agent.train()
-
 
 if __name__ == "__main__":
     main()

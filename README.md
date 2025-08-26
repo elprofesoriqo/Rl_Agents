@@ -18,8 +18,8 @@ pip install -r requirements.txt
 
 2. **Run training**:
 ```bash
-python train.py --config configs/dqn_pong.json
-python train.py --config configs/pg_cartpole.json
+python train.py configs/pong/dqn.json
+python train.py configs/cartpole/pg.json
 ```
 
 3. **Monitor training**:
@@ -31,16 +31,34 @@ tensorboard --logdir experiments/
 
 ```
 ├── models/              # RL algorithms and neural networks
-│   ├── model.py        # Base classes (BaseAgent, ValueBasedAgent, etc.)
+│   ├── model.py        # Base classes (BaseAgent, etc.)
+│   ├── base_trainer.py # Common training patterns
 │   ├── network.py      # Neural network architectures
-│   ├── dqn.py         # DQN family algorithms
-│   ├── policy_gradient.py # REINFORCE implementation
+│   ├── value_based/    # DQN family algorithms
+│   │   ├── base_value.py
+│   │   ├── dqn.py
+│   │   ├── ddqn.py
+│   │   └── rainbow.py
+│   ├── policy_based/   # Policy gradient algorithms
+│   │   ├── base_policy.py
+│   │   └── vanilla_pg.py
+│   ├── actor_critic/   # Actor-critic algorithms
+│   │   ├── base_actor_critic.py
+│   │   ├── a2c.py
+│   │   ├── a3c.py
+│   │   └── adversarial_a2c.py
 │   └── README.md      # Guide for adding new algorithms
 ├── games/              # Environment wrappers and utilities
 │   ├── atari_env.py   # Atari environment preprocessing
 │   ├── replay_buffer.py # Experience replay
+│   ├── preprocessor.py # Frame preprocessing
 │   └── experiment_logger.py # Structured experiment logging
 ├── configs/            # Algorithm configurations
+│   ├── pong/
+│   ├── breakout/
+│   ├── skiing/
+│   ├── asterix/
+│   └── cartpole/
 ├── experiments/        # Training results and checkpoints
 ├── analysis/           # Experiment analysis and visualization tools
 │   ├── analysis_utils.py # Analysis functions and ExperimentAnalyzer class
@@ -52,15 +70,19 @@ tensorboard --logdir experiments/
 
 ### Value-Based
 - **DQN**: Deep Q-Network with experience replay
-- **Nature DQN**: Convolutional architecture from Nature 2015 paper
-- **Dueling DQN**: Separate value and advantage streams
+- **Double DQN**: Reduces overestimation bias
 - **Rainbow DQN**: Multi-step learning, prioritized replay, noisy networks
 
 ### Policy-Based
 - **REINFORCE**: Vanilla policy gradient with optional baseline
 
+### Actor-Critic
+- **A2C**: Advantage Actor-Critic
+- **A3C**: Asynchronous Actor-Critic
+- **Adversarial A2C**: A2C with adversarial training
+
 ### Easy to Extend
-The framework provides base classes that make adding new algorithms straightforward. See `models/README.md` for a complete guide with A2C example.
+The framework provides base classes that make adding new algorithms straightforward. See `models/README.md` for a complete guide with examples.
 
 ## Configuration
 
@@ -68,15 +90,16 @@ Each algorithm uses JSON configuration files:
 
 ```json
 {
+  "agent_type": "dqn",
   "env": {
-    "id": "CartPole-v1"
+    "id": "ALE/Pong-v5"
   },
   "model": {
-    "hidden_dim": 128
+    "input_shape": [4, 84, 84]
   },
   "train": {
-    "num_episodes": 1000,
-    "learning_rate": 1e-3,
+    "num_episodes": 10000,
+    "learning_rate": 0.00025,
     "gamma": 0.99
   }
 }
@@ -109,4 +132,3 @@ Experiments are automatically logged with:
 - TensorBoard visualizations
 - Model checkpoints
 - Configuration snapshots
-

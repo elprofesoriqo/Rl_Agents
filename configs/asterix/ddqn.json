@@ -1,34 +1,34 @@
 {
+  "agent_type": "ddqn",
   "env": {
     "id": "ALE/Asterix-v5",
     "kwargs": {},
     "seed": 42
   },
   "train": {
-    "num_episodes": 1000,
     "learning_rate": 2.5e-4,
     "use_rmsprop": true,
-    "batch_size": 32,
+    "rmsprop_alpha": 0.95,
+    "rmsprop_momentum": 0.95,
+    "rmsprop_eps": 0.01,
+    "gradient_clip": 10.0,
     "gamma": 0.99,
     "epsilon_start": 1.0,
     "epsilon_end": 0.01,
     "epsilon_decay": 1000000,
-    "target_update": 10000,
     "memory_size": 1000000,
-    "warmup_steps": 1000,
-    "reward_clip": 1.0,
-    "save_every": 100,
+    "batch_size": 32,
+    "target_update": 10000,
+    "num_episodes": 1000,
     "render_every": 0,
     "max_steps_per_episode": null,
+    "save_every": 100,
     "stats_window": 100,
-    "log_dir": "runs/dqn_asterix"
+    "reward_clip": 1.0,
+    "warmup_steps": 1000,
+    "experiments_dir": "experiments"
   },
   "model": {
-    "network_type": "rainbow",
-    "input_shape": [4, 84, 84],
-    "n_atoms": 51,
-    "v_min": -10,
-    "v_max": 10,
-    "noisy": true
+    "input_shape": [4, 84, 84]
   }
 }

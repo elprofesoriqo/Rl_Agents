@@ -1,7 +1,7 @@
 {
   "agent_type": "dqn",
   "env": {
-    "id": "ALE/Skiing-v5",
+    "id": "ALE/Pong-v5",
     "kwargs": {},
     "seed": 42
   },
@@ -14,26 +14,21 @@
     "gradient_clip": 10.0,
     "gamma": 0.99,
     "epsilon_start": 1.0,
-    "epsilon_end": 0.1,
+    "epsilon_end": 0.01,
     "epsilon_decay": 1000000,
     "memory_size": 1000000,
     "batch_size": 32,
     "target_update": 10000,
-    "num_episodes": 200,
-    "render_every": 0,
+    "num_episodes": 1000,
+    "render_every": 1,
     "max_steps_per_episode": null,
     "save_every": 100,
-    "checkpoint_path": "checkpoints/dqn_nature_ep{EPISODE}.pth",
-    "checkpoint_dir": "checkpoints",
-    "runs_dir": "runs",
-    "log_dir": "runs/dqn_nature",
     "stats_window": 100,
     "reward_clip": 1.0,
     "warmup_steps": 1000,
-    "reward_log_every": null
+    "experiments_dir": "experiments"
   },
   "model": {
-    "network_type": "nature",
     "input_shape": [4, 84, 84]
   }
 }

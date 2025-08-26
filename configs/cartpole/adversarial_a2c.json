@@ -1,0 +1,26 @@
+{
+  "agent_type": "adversarial_a2c",
+  "env": {
+    "id": "CartPole-v1",
+    "kwargs": {},
+    "seed": 42
+  },
+  "train": {
+    "learning_rate": 0.0003,
+    "gamma": 0.99,
+    "num_episodes": 1000,
+    "max_episode_length": 500,
+    "value_loss_coeff": 0.5,
+    "entropy_coeff": 0.01,
+    "adversarial_coeff": 0.1,
+    "gradient_clip": 10.0,
+    "render_every": 0,
+    "save_every": 100,
+    "stats_window": 100,
+    "experiments_dir": "experiments"
+  },
+  "model": {
+    "hidden_dim": 128,
+    "shared_network": true
+  }
+}

@@ -10,24 +10,40 @@ The models directory follows a hierarchical structure:
 models/
 ├── __init__.py          # Module exports and imports
 ├── model.py            # Base classes for all RL agents
+├── base_trainer.py     # Common training patterns
 ├── network.py          # Neural network architectures
-├── dqn.py             # DQN family algorithms
-├── policy_gradient.py  # Policy gradient algorithms
+├── value_based/        # DQN family algorithms
+│   ├── __init__.py
+│   ├── base_value.py
+│   ├── dqn.py
+│   ├── ddqn.py
+├── policy_based/       # Policy gradient algorithms
+│   ├── __init__.py
+│   ├── base_policy.py
+│   └── vanilla_pg.py
+├── actor_critic/       # Actor-critic algorithms
+│   ├── __init__.py
+│   ├── base_actor_critic.py
+│   ├── a2c.py
+│   └── adversarial_a2c.py
 └── [your_algorithm].py # Your new algorithm
 ```
 
 ## Base Classes
 
-The framework provides several base classes in `model.py`:
+The framework provides several base classes in `model.py` and specialized bases:
 
 - **`BaseAgent`**: Abstract base for all RL agents
-- **`ValueBasedAgent`**: For Q-learning style algorithms (DQN, etc.)
-- **`PolicyBasedAgent`**: For policy gradient algorithms (REINFORCE, etc.)
-- **`ActorCriticAgent`**: For algorithms with both policy and value functions
+- **`BaseTrainer`**: Common training patterns and utilities
+- **`ValueBasedModel`**: For Q-learning style algorithms (DQN, etc.)
+- **`PolicyBasedModel`**: For policy gradient algorithms (REINFORCE, etc.)
+- **`ActorCriticModel`**: For algorithms with both policy and value functions
 
 ## Step-by-Step Guide: Adding A2C
 
 ### 1. Create the Algorithm File
+
+Create `models/actor_critic/a2c.py` and implement the A2C algorithm by inheriting from `ActorCriticModel`.
 
 ### 2. Update `models/__init__.py`
 
@@ -35,21 +51,22 @@ Add your new algorithm to the module exports:
 
 ```python
 # Add to imports
-from .a2c import A2CAgent, A2CNetwork
+from .actor_critic import A2CModel
 
 # Add to __all__ list
 __all__ = [
     # ... existing exports ...
-    'A2CAgent', 'A2CNetwork'
+    'A2CModel'
 ]
 ```
 
 ### 3. Create Configuration File
 
-Create `configs/a2c_cartpole.json`:
+Create `configs/cartpole/a2c.json`:
 
 ```json
 {
+  "agent_type": "a2c",
   "env": {
     "id": "CartPole-v1"
   },
@@ -74,30 +91,30 @@ Create `configs/a2c_cartpole.json`:
 In `train.py`, add your algorithm to the agent factory:
 
 ```python
-def get_agent(config):
-    algorithm = config.get("algorithm", "dqn")
+def create_agent(config):
+    agent_type = config["agent_type"]
     
-    if algorithm == "dqn":
-        return DQNAgent(config)
-    elif algorithm == "policy_gradient":
+    if agent_type == "dqn":
+        return DQNModel(config)
+    elif agent_type == "policy_gradient":
         return PolicyGradientAgent(config)
-    elif algorithm == "a2c":  # Add this line
-        return A2CAgent(config)
-    else:
-        raise ValueError(f"Unknown algorithm: {algorithm}")
+    elif agent_type == "a2c":  # Add this line
+        return A2CModel(config)
 ```
 
 ## Key Implementation Tips
 
 ### 1. Choose the Right Base Class
-- **ValueBasedAgent**: For Q-learning algorithms (DQN, Rainbow, etc.)
-- **PolicyBasedAgent**: For pure policy methods (REINFORCE, PPO, etc.)
-- **ActorCriticAgent**: For algorithms with both policy and value functions (A2C, SAC, etc.)
+- **ValueBasedModel**: For Q-learning algorithms (DQN, Rainbow, etc.)
+- **PolicyBasedModel**: For pure policy methods (REINFORCE, PPO, etc.)
+- **ActorCriticModel**: For algorithms with both policy and value functions (A2C, SAC, etc.)
 
 ### 2. Required Methods
 Every agent must implement:
 - `act(state) -> int`: Action selection
-- `train() -> None`: Main training loop
+- `get_algorithm_name() -> str`: Algorithm name for logging
+- `create_networks()`: Create required neural networks
+- `compute_loss()` or equivalent: Algorithm-specific loss computation
 - `save(path) -> None`: Save checkpoint
 - `load(path) -> None`: Load checkpoint
 - `evaluate(num_episodes) -> Tuple[float, float]`: Evaluation
@@ -119,8 +136,8 @@ Every agent must implement:
 
 ## Testing Your Implementation
 
-1. **Create config file**: `configs/a2c_cartpole.json`
-2. **Run training**: `python train.py --config configs/a2c_cartpole.json`
+1. **Create config file**: `configs/cartpole/a2c.json`
+2. **Run training**: `python train.py configs/cartpole/a2c.json`
 3. **Check outputs**: Look for experiment directory in `experiments/`
 4. **Monitor training**: Use TensorBoard to view training curves
 
@@ -156,9 +173,6 @@ def _compute_n_step_returns(self, rewards, values, n_steps=5):
 from games.replay_buffer import ReplayBuffer
 
 self.replay_buffer = ReplayBuffer(
-    buffer_size=self.train_cfg.get("buffer_size", 100000),
-    batch_size=self.batch_size
+    capacity=self.train_cfg.get("memory_size", 100000)
 )
 ```
-
-This framework provides a clean, extensible foundation for implementing any RL algorithm while maintaining consistency and reusability across different methods.

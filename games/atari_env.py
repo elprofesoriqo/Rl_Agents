@@ -5,6 +5,8 @@ from .preprocessor import AtariPreprocessor
 
 
 class AtariGame:
+    """Atari environment wrapper with preprocessing and rendering support."""
+    
     def __init__(
         self,
         env_id: str,
@@ -47,13 +49,11 @@ class AtariGame:
     def reset_render(self) -> Tuple[Any, Dict[str, Any]]:
         """Reset render environment safely - DON'T close, just reset!"""
         try:
-            # If render env exists, just reset it (don't close!)
             if self.render_env is not None:
                 result = self.render_env.reset()
                 self.render_active = True
                 return result
             else:
-                # Create new render environment only if it doesn't exist
                 self.ensure_render_env()
                 if self.render_env is not None:
                     result = self.render_env.reset()
@@ -63,7 +63,6 @@ class AtariGame:
                     return None, {}
         except Exception as e:
             print(f"Render reset error: {e}")
-            # Only close if reset completely fails
             try:
                 if self.render_env is not None:
                     self.render_env.close()
