@@ -1,9 +1,9 @@
 import os
 import sys
 import json
-from models.value_based import DQNModel, DoubleDQNModel, RainbowModel
+from models.value_based import DQNModel, DoubleDQNModel
 from models.policy_based import PolicyGradientAgent
-from models.actor_critic import A2CModel, A3CModel, AdversarialA2CModel
+from models.actor_critic import A2CModel, AdversarialA2CModel
 
 def create_agent(config: dict):
     """Create agent based on config."""
@@ -13,14 +13,12 @@ def create_agent(config: dict):
         return DQNModel(config)
     elif agent_type == "ddqn" or agent_type == "double_dqn":
         return DoubleDQNModel(config)
-    elif agent_type == "rainbow":
-        return RainbowModel(config)
+
     elif agent_type == "policy_gradient" or agent_type == "reinforce":
         return PolicyGradientAgent(config)
     elif agent_type == "a2c":
         return A2CModel(config)
-    elif agent_type == "a3c":
-        return A3CModel(config)
+
     elif agent_type == "adversarial_a2c":
         return AdversarialA2CModel(config)
     else:
