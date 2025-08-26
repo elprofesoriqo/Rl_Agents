@@ -23,6 +23,11 @@ class BaseTrainer(BaseAgent):
         self.gamma = self.train_cfg.get("gamma", 0.99)
         self.episode = 0
         
+        self._setup_environment()
+        
+        experiment_name = f"{self.get_algorithm_name()}_{self.env_cfg['id']}"
+        self._setup_experiment_logging(experiment_name)
+        
     @abstractmethod
     def get_algorithm_name(self) -> str:
         """Get algorithm name for logging."""
@@ -306,6 +311,26 @@ class BaseTrainer(BaseAgent):
             rewards.append(total_reward)
             
         return float(np.mean(rewards)), float(np.std(rewards))
+
+    def _setup_environment(self) -> None:
+        """Setup environment based on configuration"""
+        env_id = self.env_cfg["id"]
+        
+        if "ALE/" in env_id or "Atari" in env_id:
+            from games.atari_env import AtariGame
+            self.game = AtariGame(
+                env_id, 
+                self.env_cfg.get("kwargs", {}), 
+                self.env_cfg.get("seed")
+            )
+            self.env = self.game
+            self.is_atari_env = True
+        else:
+            import gymnasium as gym
+            render_enabled = self.train_cfg.get("render_every", 0) > 0
+            render_mode = "human" if render_enabled else None
+            self.env = gym.make(env_id, render_mode=render_mode)
+            self.is_atari_env = False
 
     def cleanup(self) -> None:
         if hasattr(self, 'writer'):

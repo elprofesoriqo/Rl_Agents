@@ -1,20 +1,15 @@
-# Base classes
-from .model import BaseAgent, ValueBasedAgent, PolicyBasedAgent, ActorCriticAgent
+from .model import BaseAgent
 from .network import BaseNetwork, ConvNetwork, FCNetwork, NoisyLinear
+from .base_trainer import BaseTrainer
 
-# Agent implementations with their networks
-from .dqn import DQNAgent, NatureDQN, DuelingDQN, RainbowDQN
-from .policy_gradient import PolicyGradientAgent, PolicyNetwork, ValueNetwork
+from .value_based import ValueBasedModel, DQNModel, DoubleDQNModel
+from .policy_based import PolicyBasedModel, PolicyGradientAgent
+from .actor_critic import ActorCriticModel, A2CModel, AdversarialA2CModel
 
 __all__ = [
-    # Base classes
-    'BaseAgent', 'ValueBasedAgent', 'PolicyBasedAgent', 'ActorCriticAgent',
-    'BaseNetwork', 'ConvNetwork', 'FCNetwork', 'NoisyLinear',
+    'BaseAgent', 'BaseNetwork', 'ConvNetwork', 'FCNetwork', 'NoisyLinear', 'BaseTrainer',
     
-    # Agents
-    'DQNAgent', 'PolicyGradientAgent',
-    
-    # Networks
-    'NatureDQN', 'DuelingDQN', 'RainbowDQN',
-    'PolicyNetwork', 'ValueNetwork'
+    'ValueBasedModel', 'DQNModel', 'DoubleDQNModel', 
+    'PolicyBasedModel', 'PolicyGradientAgent',
+    'ActorCriticModel', 'A2CModel', 'AdversarialA2CModel',
 ]
