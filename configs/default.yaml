@@ -1,0 +1,69 @@
+env:
+  name: "CarRacing-v2"
+  render_mode: null
+  frame_stack: 4
+  frame_skip: 4
+  img_size: [84, 84]
+  grayscale: true
+  normalize: true
+  discrete_actions: true
+  reward_shaping: true
+  max_episode_steps: 1000
+
+network:
+  hidden_dims: [512, 256]
+  activation: "relu"
+  use_batch_norm: false
+  dropout_rate: 0.0
+  init_method: "orthogonal"
+
+ppo:
+  learning_rate: 3e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_loss_coeff: 0.5
+  entropy_coeff: 0.01
+  max_grad_norm: 0.5
+  ppo_epochs: 10
+  batch_size: 64
+  mini_batch_size: 32
+
+training:
+  total_timesteps: 1000000
+  n_parallel_envs: 8
+  rollout_steps: 2048
+  save_interval: 10000
+  eval_interval: 5000
+  eval_episodes: 10
+  mixed_precision: true
+  gradient_checkpointing: false
+
+hpc:
+  device: "cuda"
+  num_workers: 4
+  pin_memory: true
+  non_blocking: true
+  compile_model: true
+  distributed: false
+  world_size: 1
+  rank: 0
+  backend: "nccl"
+
+replay_buffer:
+  capacity: 100000
+  use_per: true
+  alpha: 0.6
+  beta: 0.4
+  beta_increment: 0.001
+  epsilon: 1e-6
+  gpu_buffer: true
+
+logging:
+  log_dir: "logs"
+  tensorboard: true
+  excel: true
+  console_level: "INFO"
+  file_level: "DEBUG"
+  save_videos: true
+  video_interval: 10000
