@@ -94,3 +94,81 @@ class LoggingConfig:
     file_level: str = "DEBUG"
     save_videos: bool = True
     video_interval: int = 10000
+
+class Config:
+    """Main configuration class."""
+    
+    def __init__(self, config_path: Optional[str] = None):
+        """Initialize configuration."""
+        self.env = EnvironmentConfig()
+        self.network = NetworkConfig()
+        self.ppo = PPOConfig()
+        self.training = TrainingConfig()
+        self.hpc = HPCConfig()
+        self.replay_buffer = ReplayBufferConfig()
+        self.logging = LoggingConfig()
+        
+        if config_path and Path(config_path).exists():
+            self.load_from_file(config_path)
+        
+        self._validate_config()
+    
+    def load_from_file(self, config_path: str):
+        """Load configuration from YAML file."""
+        with open(config_path, 'r') as f:
+            config_dict = yaml.safe_load(f)
+        
+        for section_name, section_config in config_dict.items():
+            if hasattr(self, section_name):
+                section = getattr(self, section_name)
+                for key, value in section_config.items():
+                    if hasattr(section, key):
+                        setattr(section, key, value)
+    
+    def save_to_file(self, config_path: str):
+        """Save configuration to YAML file."""
+        config_dict = {}
+        for attr_name in ['env', 'network', 'ppo', 'training', 'hpc', 'replay_buffer', 'logging']:
+            if hasattr(self, attr_name):
+                section = getattr(self, attr_name)
+                config_dict[attr_name] = {
+                    field.name: getattr(section, field.name)
+                    for field in section.__dataclass_fields__.values()
+                }
+        
+        Path(config_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, 'w') as f:
+            yaml.dump(config_dict, f, default_flow_style=False, indent=2)
+    
+    def _validate_config(self):
+        """Validate configuration values."""
+        # Validate device availability
+        if self.hpc.device == "cuda" and not torch.cuda.is_available():
+            print("Warning: CUDA not available, falling back to CPU")
+            self.hpc.device = "cpu"
+        
+        # Adjust batch sizes based on available memory
+        if self.hpc.device == "cuda":
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory
+            if gpu_memory < 4e9:  # Less than 4GB
+                self.training.n_parallel_envs = min(self.training.n_parallel_envs, 4)
+                self.ppo.batch_size = min(self.ppo.batch_size, 32)
+        
+        if self.ppo.batch_size % self.ppo.mini_batch_size != 0:
+            self.ppo.mini_batch_size = self.ppo.batch_size // 4
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert configuration to dictionary."""
+        config_dict = {}
+        for attr_name in ['env', 'network', 'ppo', 'training', 'hpc', 'replay_buffer', 'logging']:
+            if hasattr(self, attr_name):
+                section = getattr(self, attr_name)
+                config_dict[attr_name] = {
+                    field.name: getattr(section, field.name)
+                    for field in section.__dataclass_fields__.values()
+                }
+        return config_dict
+    
+    def __str__(self) -> str:
+        """String representation of configuration."""
+        return yaml.dump(self.to_dict(), default_flow_style=False, indent=2)
