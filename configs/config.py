@@ -84,13 +84,20 @@ class HPCConfig:
 class ReplayBufferConfig:
     """Replay buffer configuration."""
 
+    # Buffer settings
     capacity: int = 100000
-    use_per: bool = True  # Prioritized Experience Replay
-    alpha: float = 0.6
-    beta: float = 0.4
-    beta_increment: float = 0.001
-    epsilon: float = 1e-6
-    gpu_buffer: bool = True
+    batch_size: int = 32
+    min_size: int = 1000
+    buffer_type: str = 'prioritized'  # 'prioritized' or 'uniform'
+
+    # Prioritized replay settings
+    alpha: float = 0.6  # How much prioritization is used (0 = uniform, 1 = full prioritization)
+    beta_start: float = 0.4  # Initial importance sampling correction factor
+    beta_steps: int = 100000  # Number of steps to anneal beta to 1.0
+    epsilon: float = 1e-6  # Small constant to prevent zero priorities
+
+    # GPU optimization
+    gpu_buffer: bool = True  # Store buffer on GPU for performance
 
 
 @dataclass
