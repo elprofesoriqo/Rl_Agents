@@ -269,8 +269,24 @@ class PPOAgent:
 
         return dict(episode_stats)
 
-    def update_policy(self) -> dict[str, float]:
+    def update_policy(
+        self,
+        observations: torch.Tensor | None = None,
+        actions: torch.Tensor | None = None,
+        old_log_probs: torch.Tensor | None = None,
+        old_values: torch.Tensor | None = None,
+        advantages: torch.Tensor | None = None,
+        returns: torch.Tensor | None = None,
+    ) -> dict[str, float]:
         """Update policy using PPO algorithm.
+
+        Args:
+            observations: Observations tensor (optional, uses memory if None)
+            actions: Actions tensor (optional, uses memory if None)
+            old_log_probs: Old log probabilities (optional, uses memory if None)
+            old_values: Old value estimates (optional, uses memory if None)
+            advantages: Advantage estimates (optional, uses memory if None)
+            returns: Return estimates (optional, uses memory if None)
 
         Returns:
             Dictionary of training metrics
@@ -283,8 +299,30 @@ class PPOAgent:
         entropies = []
         clip_fractions = []
 
+        # Use direct tensors if provided, otherwise use memory
+        if observations is not None:
+            # Direct tensor mode - create single batch
+            batch_size = self.config.ppo.mini_batch_size
+            total_samples = observations.shape[0]
+
+            batches = []
+            for start_idx in range(0, total_samples, batch_size):
+                end_idx = min(start_idx + batch_size, total_samples)
+                batch_data = {
+                    'observations': observations[start_idx:end_idx],
+                    'actions': actions[start_idx:end_idx],
+                    'old_log_probs': old_log_probs[start_idx:end_idx],
+                    'old_values': old_values[start_idx:end_idx],
+                    'advantages': advantages[start_idx:end_idx],
+                    'returns': returns[start_idx:end_idx],
+                }
+                batches.append(batch_data)
+        else:
+            # Memory mode - use existing memory system
+            batches = list(self.memory.get_batches(self.config.ppo.mini_batch_size))
+
         for _epoch in range(self.ppo_epochs):
-            for batch in self.memory.get_batches(self.config.ppo.mini_batch_size):
+            for batch in batches:
                 if self.use_mixed_precision:
                     with torch.cuda.amp.autocast():
                         log_probs, values, entropy = self.network.evaluate_actions(
