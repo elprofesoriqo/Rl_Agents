@@ -9,6 +9,17 @@ env:
   discrete_actions: true
   reward_shaping: true
   max_episode_steps: 1000
+  
+  # Advanced reward shaping parameters
+  reward_shaper_type: "basic"  # "basic", "adaptive", "curriculum"
+  progress_reward_weight: 1.0
+  speed_reward_weight: 0.1
+  position_reward_weight: 0.5
+  steering_reward_weight: 0.1
+  lap_completion_bonus: 100.0
+  crash_penalty: -10.0
+  off_track_penalty: -1.0
+  adaptation_episodes: 1000  # For adaptive shaper
 
 network:
   hidden_dims: [512, 256]

@@ -23,6 +23,17 @@ class EnvironmentConfig:
     reward_shaping: bool = True
     max_episode_steps: int = 1000
 
+    # Advanced reward shaping parameters
+    reward_shaper_type: str = 'basic'  # 'basic', 'adaptive', 'curriculum'
+    progress_reward_weight: float = 1.0
+    speed_reward_weight: float = 0.1
+    position_reward_weight: float = 0.5
+    steering_reward_weight: float = 0.1
+    lap_completion_bonus: float = 100.0
+    crash_penalty: float = -10.0
+    off_track_penalty: float = -1.0
+    adaptation_episodes: int = 1000  # For adaptive shaper
+
 
 @dataclass
 class NetworkConfig:

@@ -122,7 +122,7 @@ class FrameStackWrapper(gym.ObservationWrapper):
 
 
 class RewardShaper:
-    """Shape rewards for better training performance."""
+    """Advanced reward shaper for better training performance."""
 
     def __init__(self, config: Any) -> None:
         """Initialize reward shaper."""
@@ -130,49 +130,85 @@ class RewardShaper:
         self.prev_reward = 0.0
         self.step_count = 0
         self.total_reward = 0.0
-        self.speed_bonus_threshold = 50.0
-        self.progress_bonus = 0.1
-        self.time_penalty = -0.01
-        self.crash_penalty = -10.0
-        self.off_track_penalty = -1.0
+        
+        # Initialize advanced reward shaper
+        try:
+            from utils.reward_shaping import create_reward_shaper
+            shaper_type = getattr(config.env, 'reward_shaper_type', 'basic')
+            self.advanced_shaper = create_reward_shaper(config, shaper_type)
+            self.use_advanced = True
+        except ImportError:
+            self.use_advanced = False
+            # Fallback parameters
+            self.speed_bonus_threshold = 50.0
+            self.progress_bonus = 0.1
+            self.time_penalty = -0.01
+            self.crash_penalty = -10.0
+            self.off_track_penalty = -1.0
 
-    def shape_reward(self, reward: float, done: bool, info: dict) -> float:
+    def shape_reward(self, reward: float, done: bool, info: dict, observation: np.ndarray = None, action: int = None) -> tuple[float, dict]:
         """Apply reward shaping."""
         if not self.config.env.reward_shaping:
-            return reward
+            return reward, {}
 
+        # Use advanced reward shaping if available and observation/action provided
+        if self.use_advanced and observation is not None and action is not None:
+            shaped_reward, shaping_components = self.advanced_shaper.shape_reward(
+                reward, observation, action, info, done
+            )
+            self.total_reward += shaped_reward
+            return shaped_reward, shaping_components
+
+        # Fallback to simple reward shaping
         shaped_reward = reward
         self.step_count += 1
 
+        shaping_components = {'base_reward': reward}
+
         # Progress bonus for positive rewards
         if reward > 0:
-            shaped_reward += self.progress_bonus
+            progress_bonus = self.progress_bonus
+            shaped_reward += progress_bonus
+            shaping_components['progress_bonus'] = progress_bonus
 
         # Time penalty to encourage faster completion
-        shaped_reward += self.time_penalty
+        time_penalty = self.time_penalty
+        shaped_reward += time_penalty
+        shaping_components['time_penalty'] = time_penalty
 
         # Penalty for going off track (negative rewards in CarRacing)
         if reward < -0.1:
-            shaped_reward += self.off_track_penalty
+            off_track_penalty = self.off_track_penalty
+            shaped_reward += off_track_penalty
+            shaping_components['off_track_penalty'] = off_track_penalty
 
         # Large penalty for episode termination due to poor performance
         if done and self.step_count < 200:  # Ended too early
-            shaped_reward += self.crash_penalty
+            crash_penalty = self.crash_penalty
+            shaped_reward += crash_penalty
+            shaping_components['crash_penalty'] = crash_penalty
 
         # Bonus for maintaining speed (inferred from consistent positive rewards)
         if reward > 0 and self.prev_reward > 0:
-            shaped_reward += 0.05
+            speed_bonus = 0.05
+            shaped_reward += speed_bonus
+            shaping_components['speed_bonus'] = speed_bonus
 
         self.prev_reward = reward
         self.total_reward += shaped_reward
+        
+        shaping_components['total_shaping'] = shaped_reward - reward
 
-        return shaped_reward
+        return shaped_reward, shaping_components
 
     def reset(self) -> None:
         """Reset reward shaper state."""
         self.prev_reward = 0.0
         self.step_count = 0
         self.total_reward = 0.0
+        
+        if self.use_advanced:
+            self.advanced_shaper.reset()
 
 
 class CarRacingEnvironment:
@@ -276,11 +312,16 @@ class CarRacingEnvironment:
         self._last_observation = observation
 
         # Apply reward shaping
-        shaped_reward = self.reward_shaper.shape_reward(
+        shaped_reward, shaping_components = self.reward_shaper.shape_reward(
             total_reward,
             terminated or truncated,
             info,
+            observation,
+            action,
         )
+        
+        # Add shaping components to info
+        info.update({f'shaping/{key}': value for key, value in shaping_components.items()})
 
         self._episode_step += 1
         self._episode_reward += shaped_reward
