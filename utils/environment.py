@@ -16,15 +16,11 @@ class DiscreteActionWrapper(gym.ActionWrapper):
         super().__init__(env)
 
         self.discrete_actions = [
-            [0.0, 0.0, 0.0],  # 0: no-op
-            [-0.6, 0.0, 0.0],  # 1: left
-            [0.6, 0.0, 0.0],  # 2: right
-            [0.0, 1.0, 0.0],  # 3: gas
-            [0.0, 0.0, 0.8],  # 4: brake
-            [-0.6, 1.0, 0.0],  # 5: left + gas
-            [0.6, 1.0, 0.0],  # 6: right + gas
-            [-0.3, 1.0, 0.0],  # 7: slight left + gas
-            [0.3, 1.0, 0.0],  # 8: slight right + gas
+            [0.0, 0.0, 0.0],  # 0: Do-Nothing (coast)
+            [-1.0, 0.0, 0.0],  # 1: Turn-Left (hard left)
+            [1.0, 0.0, 0.0],  # 2: Turn-Right (hard right)
+            [0.0, 1.0, 0.0],  # 3: Accelerate (full throttle)
+            [0.0, 0.0, 0.8],  # 4: Brake (hard brake)
         ]
 
         self.action_space = gym.spaces.Discrete(len(self.discrete_actions))
@@ -35,7 +31,7 @@ class DiscreteActionWrapper(gym.ActionWrapper):
             action = int(action)
 
         if action < 0 or action >= len(self.discrete_actions):
-            action = 0  # Default to no-op
+            action = 0
 
         return np.array(self.discrete_actions[action], dtype=np.float32)
 
@@ -51,30 +47,25 @@ class FramePreprocessor:
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         """Process a single frame."""
-        # Convert to RGB if needed (CarRacing returns RGB)
+        if frame.shape[0] == 96:
+            frame = frame[:84, :, :]
+
         if len(frame.shape) == 3 and frame.shape[2] == 3:
             if self.grayscale:
-                # Convert to grayscale using proper weights
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
             else:
-                # Keep RGB but ensure correct format
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-        # Resize frame
         frame = cv2.resize(frame, self.img_size, interpolation=cv2.INTER_AREA)
-
-        # Convert to float32 first
         frame = frame.astype(np.float32)
 
-        # Normalize pixel values
         if self.normalize:
             frame = frame / 255.0
 
-        # Add channel dimension if grayscale
         if self.grayscale and len(frame.shape) == 2:
-            frame = np.expand_dims(frame, axis=0)  # Shape: (1, H, W)
+            frame = np.expand_dims(frame, axis=0)
         elif not self.grayscale and len(frame.shape) == 3:
-            frame = frame.transpose(2, 0, 1)  # Shape: (C, H, W)
+            frame = frame.transpose(2, 0, 1)
 
         return frame
 
@@ -122,36 +113,35 @@ class FrameStackWrapper(gym.ObservationWrapper):
 
 
 class RewardShaper:
-    """Advanced reward shaper for better training performance."""
+    """Reward shaper for training performance."""
 
     def __init__(self, config: Any) -> None:
-        """Initialize reward shaper."""
         self.config = config
         self.prev_reward = 0.0
         self.step_count = 0
         self.total_reward = 0.0
-        
-        # Initialize advanced reward shaper
+
         try:
             from utils.reward_shaping import create_reward_shaper
+
             shaper_type = getattr(config.env, 'reward_shaper_type', 'basic')
             self.advanced_shaper = create_reward_shaper(config, shaper_type)
             self.use_advanced = True
         except ImportError:
             self.use_advanced = False
-            # Fallback parameters
             self.speed_bonus_threshold = 50.0
             self.progress_bonus = 0.1
             self.time_penalty = -0.01
             self.crash_penalty = -10.0
             self.off_track_penalty = -1.0
 
-    def shape_reward(self, reward: float, done: bool, info: dict, observation: np.ndarray = None, action: int = None) -> tuple[float, dict]:
+    def shape_reward(
+        self, reward: float, done: bool, info: dict, observation: np.ndarray = None, action: int = None
+    ) -> tuple[float, dict]:
         """Apply reward shaping."""
         if not self.config.env.reward_shaping:
             return reward, {}
 
-        # Use advanced reward shaping if available and observation/action provided
         if self.use_advanced and observation is not None and action is not None:
             shaped_reward, shaping_components = self.advanced_shaper.shape_reward(
                 reward, observation, action, info, done
@@ -159,36 +149,29 @@ class RewardShaper:
             self.total_reward += shaped_reward
             return shaped_reward, shaping_components
 
-        # Fallback to simple reward shaping
         shaped_reward = reward
         self.step_count += 1
-
         shaping_components = {'base_reward': reward}
 
-        # Progress bonus for positive rewards
         if reward > 0:
             progress_bonus = self.progress_bonus
             shaped_reward += progress_bonus
             shaping_components['progress_bonus'] = progress_bonus
 
-        # Time penalty to encourage faster completion
         time_penalty = self.time_penalty
         shaped_reward += time_penalty
         shaping_components['time_penalty'] = time_penalty
 
-        # Penalty for going off track (negative rewards in CarRacing)
         if reward < -0.1:
             off_track_penalty = self.off_track_penalty
             shaped_reward += off_track_penalty
             shaping_components['off_track_penalty'] = off_track_penalty
 
-        # Large penalty for episode termination due to poor performance
-        if done and self.step_count < 200:  # Ended too early
+        if done and self.step_count < 200:
             crash_penalty = self.crash_penalty
             shaped_reward += crash_penalty
             shaping_components['crash_penalty'] = crash_penalty
 
-        # Bonus for maintaining speed (inferred from consistent positive rewards)
         if reward > 0 and self.prev_reward > 0:
             speed_bonus = 0.05
             shaped_reward += speed_bonus
@@ -196,7 +179,6 @@ class RewardShaper:
 
         self.prev_reward = reward
         self.total_reward += shaped_reward
-        
         shaping_components['total_shaping'] = shaped_reward - reward
 
         return shaped_reward, shaping_components
@@ -206,127 +188,133 @@ class RewardShaper:
         self.prev_reward = 0.0
         self.step_count = 0
         self.total_reward = 0.0
-        
         if self.use_advanced:
             self.advanced_shaper.reset()
 
 
 class CarRacingEnvironment:
-    """Complete CarRacing environment wrapper with all preprocessing."""
+    """CarRacing environment wrapper with preprocessing."""
 
     def __init__(self, config: Any) -> None:
-        """Initialize CarRacing environment."""
         self.config = config
+        self.env_id = getattr(config, '_env_id', 0)
+        render_mode = config.env.render_mode if self.env_id == 0 else None
 
-        # Create base environment
         self.env = gym.make(
             config.env.name,
-            render_mode=config.env.render_mode,
+            render_mode=render_mode,
             max_episode_steps=config.env.max_episode_steps,
         )
 
-        # Apply discrete action wrapper if needed
         if config.env.discrete_actions:
             self.env = DiscreteActionWrapper(self.env)
 
-        # Set up frame preprocessing
+        class PreprocessingWrapper(gym.ObservationWrapper):
+            def __init__(self, env, preprocessor):
+                super().__init__(env)
+                self.preprocessor = preprocessor
+                obs_shape = (
+                    (1, *tuple(config.env.img_size)) if config.env.grayscale else (3, *tuple(config.env.img_size))
+                )
+
+                if config.env.normalize:
+                    self.observation_space = gym.spaces.Box(
+                        low=0.0,
+                        high=1.0,
+                        shape=obs_shape,
+                        dtype=np.float32,
+                    )
+                else:
+                    self.observation_space = gym.spaces.Box(
+                        low=0,
+                        high=255,
+                        shape=obs_shape,
+                        dtype=np.uint8,
+                    )
+
+            def observation(self, observation):
+                return self.preprocessor.process(observation)
+
         self.preprocessor = FramePreprocessor(
             img_size=tuple(config.env.img_size),
             grayscale=config.env.grayscale,
             normalize=config.env.normalize,
         )
 
-        # Update observation space based on preprocessing
-        obs_shape = (1, *tuple(config.env.img_size)) if config.env.grayscale else (3, *tuple(config.env.img_size))
+        self.env = PreprocessingWrapper(self.env, self.preprocessor)
 
-        if config.env.normalize:
-            self.env.observation_space = gym.spaces.Box(
-                low=0.0,
-                high=1.0,
-                shape=obs_shape,
-                dtype=np.float32,
-            )
-        else:
-            self.env.observation_space = gym.spaces.Box(
-                low=0,
-                high=255,
-                shape=obs_shape,
-                dtype=np.uint8,
-            )
-
-        # Apply frame stacking
         if config.env.frame_stack > 1:
             self.env = FrameStackWrapper(self.env, config.env.frame_stack)
 
-        # Set up reward shaping
         self.reward_shaper = RewardShaper(config)
-
-        # Frame skipping
         self.frame_skip = config.env.frame_skip
-
-        # Environment state
         self._last_observation = None
         self._episode_step = 0
         self._episode_reward = 0.0
+        self._off_track_steps = 0
+        self._max_off_track_steps = 100
 
     @property
     def observation_space(self) -> Any:
-        """Get observation space."""
         return self.env.observation_space
 
     @property
     def action_space(self) -> Any:
-        """Get action space."""
         return self.env.action_space
 
     def reset(self, **kwargs: Any) -> tuple[np.ndarray, dict]:
         """Reset environment."""
-        # Reset reward shaper
         self.reward_shaper.reset()
         self._episode_step = 0
         self._episode_reward = 0.0
-
-        # Reset base environment
+        self._off_track_steps = 0
         observation, info = self.env.reset(**kwargs)
-
-        # Preprocess observation
-        observation = self.preprocessor.process(observation)
         self._last_observation = observation
-
         return observation, info
 
     def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
         """Step environment with frame skipping."""
         total_reward = 0.0
 
-        # Frame skipping
         for _ in range(self.frame_skip):
             observation, reward, terminated, truncated, info = self.env.step(action)
             total_reward += reward
-
             if terminated or truncated:
                 break
 
-        # Preprocess observation
-        observation = self.preprocessor.process(observation)
         self._last_observation = observation
+        custom_terminated = terminated
+        custom_truncated = truncated
 
-        # Apply reward shaping
+        if total_reward < -0.1:
+            self._off_track_steps += 1
+        else:
+            self._off_track_steps = 0
+
+        if self._off_track_steps >= self._max_off_track_steps:
+            custom_terminated = True
+            info['termination_reason'] = 'off_track_timeout'
+        elif total_reward < -5.0:
+            custom_terminated = True
+            info['termination_reason'] = 'severe_off_track'
+        elif self._episode_step >= self.config.env.max_episode_steps:
+            custom_truncated = True
+            info['termination_reason'] = 'max_steps'
+
+        clipped_reward = np.clip(total_reward, a_min=None, a_max=1.0)
+
         shaped_reward, shaping_components = self.reward_shaper.shape_reward(
-            total_reward,
-            terminated or truncated,
+            clipped_reward,
+            custom_terminated or custom_truncated,
             info,
             observation,
             action,
         )
-        
-        # Add shaping components to info
-        info.update({f'shaping/{key}': value for key, value in shaping_components.items()})
 
+        info.update({f'shaping/{key}': value for key, value in shaping_components.items()})
         self._episode_step += 1
         self._episode_reward += shaped_reward
 
-        # Add episode statistics to info
         info.update(
             {
                 'episode_step': self._episode_step,
@@ -336,29 +324,8 @@ class CarRacingEnvironment:
             }
         )
 
-        return observation, shaped_reward, terminated, truncated, info
-
-    def render(self, mode: str = 'human') -> Any:
-        """Render environment."""
-        return self.env.render()
+        return observation, shaped_reward, custom_terminated, custom_truncated, info
 
     def close(self) -> None:
         """Close environment."""
         self.env.close()
-
-    def seed(self, seed: int | None = None) -> Any:
-        """Set random seed."""
-        if hasattr(self.env, 'seed'):
-            return self.env.seed(seed)
-        if hasattr(self.env, 'reset'):
-            # For newer gymnasium versions
-            return self.env.reset(seed=seed)
-        return None
-
-    def get_episode_info(self) -> dict:
-        """Get current episode information."""
-        return {
-            'episode_step': self._episode_step,
-            'episode_reward': self._episode_reward,
-            'total_shaped_reward': self.reward_shaper.total_reward,
-        }
