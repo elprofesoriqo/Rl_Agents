@@ -1,37 +1,48 @@
 import argparse
+import sys
+import warnings
+from pathlib import Path
+
+import torch
+
+warnings.filterwarnings('ignore', message='pkg_resources is deprecated', category=UserWarning)
 
 from configs.config import Config
-from models.ppo_agent import PPOAgent
-from utils.environment import CarRacingEnvironment
+from models.trainer import create_trainer
 from utils.logger import Logger
 
 
+def print_system_info() -> None:
+    print(f'  CUDA Available: {torch.cuda.is_available()}')
+    if torch.cuda.is_available():
+        print(f'  CUDA Device: {torch.cuda.get_device_name()}')
+        print(f'  CUDA Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB')
+    print()
+
+
 def main() -> None:
-    """Main training loop for PPO agent."""
+    """Main entry point for PPO CarRacing Agent."""
     parser = argparse.ArgumentParser(description='PPO CarRacing Agent')
-    parser.add_argument('--config', type=str, default='configs/default.yaml', help='Path to configuration file')
-    parser.add_argument('--mode', type=str, choices=['train', 'test', 'demo'], default='train', help='Run mode')
-    parser.add_argument('--checkpoint', type=str, default=None, help='Path to checkpoint file for resuming training')
+    parser.add_argument('--checkpoint', type=str, help='Checkpoint file for resuming')
+    parser.add_argument('--config', type=str, default='configs/default.yaml', help='Configuration file path')
 
     args = parser.parse_args()
-
+    print_system_info()
     config = Config(args.config)
+    if args.checkpoint and not Path(args.checkpoint).exists():
+        print(f'Error: Checkpoint file not found: {args.checkpoint}')
+        sys.exit(1)
 
-    logger = Logger(config)
-    logger.info('Starting PPO CarRacing Agent')
-    logger.info(f'Mode: {args.mode}')
-    logger.info(f'Config: {args.config}')
-
-    env = CarRacingEnvironment(config)
-
-    agent = PPOAgent(config, env.observation_space, env.action_space)
-
-    if args.checkpoint:
-        agent.load_checkpoint(args.checkpoint)
-        logger.info(f'Loaded checkpoint: {args.checkpoint}')
-
-    if args.mode == 'train':
-        agent.train(env, logger)
+    with Logger(config) as logger:
+        try:
+            trainer = create_trainer(config, logger)
+            if args.checkpoint:
+                trainer.load_checkpoint(args.checkpoint)
+                logger.info(f'Resumed from checkpoint: {args.checkpoint}')
+            trainer.train()
+        except Exception as e:
+            logger.error(f'❌ Error: {str(e)}')
+            sys.exit(1)
 
 
 if __name__ == '__main__':
