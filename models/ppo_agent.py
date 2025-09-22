@@ -80,20 +80,21 @@ class PPOMemory:
             self.returns = advantages + self.values
             self.advantages = advantages
 
-            self.advantages = (self.advantages - self.advantages.mean()) / (self.advantages.std() + 1e-8)
+            if getattr(self.config.ppo, 'normalize_advantages', True):
+                self.advantages = (self.advantages - self.advantages.mean()) / (self.advantages.std() + 1e-8)
 
     def get_batches(self, batch_size: int):
         """Get mini-batches for training."""
         total_samples = self.rollout_steps * self.n_envs
         indices = torch.randperm(total_samples, device=self.device)
 
-        # Flatten all tensors
-        flat_obs = self.observations.view(-1, *self.observations.shape[2:])
-        flat_actions = self.actions.view(-1)
-        flat_log_probs = self.log_probs.view(-1)
-        flat_values = self.values.view(-1)
-        flat_advantages = self.advantages.view(-1)
-        flat_returns = self.returns.view(-1)
+        # Flatten all tensors - use reshape instead of view for better compatibility
+        flat_obs = self.observations.reshape(-1, *self.observations.shape[2:])
+        flat_actions = self.actions.reshape(-1)
+        flat_log_probs = self.log_probs.reshape(-1)
+        flat_values = self.values.reshape(-1)
+        flat_advantages = self.advantages.reshape(-1)
+        flat_returns = self.returns.reshape(-1)
 
         for start in range(0, total_samples, batch_size):
             end = start + batch_size
@@ -131,17 +132,56 @@ class PPOAgent:
 
         self.network = create_ppo_network(config).to(self.device)
 
+        # Apply channels-last memory format if enabled only for HCP config
+        self.use_channels_last = (
+            getattr(config.hpc, 'channels_last', False)
+            and torch.cuda.is_available()
+            and getattr(config.hpc, 'compile_model', False)
+        )
+        if self.use_channels_last:
+            try:
+                self.network = self.network.to(memory_format=torch.channels_last)
+            except Exception:
+                self.use_channels_last = False
+
         self.use_mixed_precision = config.training.mixed_precision and torch.cuda.is_available()
         if self.use_mixed_precision:
-            self.scaler = torch.amp.GradScaler('cuda')
+            precision = getattr(config.hpc, 'tensorcore_precision', 'mixed')
+            if precision == 'fp16':
+                self.scaler = torch.amp.GradScaler('cuda', init_scale=2.0**10)
+            elif precision == 'bf16':
+                self.scaler = torch.amp.GradScaler('cuda', enabled=False)  # bf16 doesn't need scaling
+            else:
+                self.scaler = torch.amp.GradScaler('cuda')
 
-        self.network = torch.compile(self.network)
+        if getattr(config.hpc, 'compile_model', False):
+            try:
+                self.network = torch.compile(
+                    self.network, mode='max-autotune' if torch.cuda.is_available() else 'default', dynamic=False
+                )
+            except Exception:
+                pass
 
-        self.optimizer = optim.Adam(
-            self.network.parameters(),
-            lr=config.ppo.learning_rate,
-            eps=1e-5,
-        )
+        optimizer_class = optim.Adam
+        if getattr(config.hpc, 'fused_optimizer', False) and torch.cuda.is_available():
+            try:
+                optimizer_class = optim.AdamW  # AdamW has better fused implementations
+                self.optimizer = optimizer_class(
+                    self.network.parameters(), lr=config.ppo.learning_rate, eps=1e-5, fused=True
+                )
+            except Exception:
+                # Fallback to regular Adam
+                self.optimizer = optim.Adam(
+                    self.network.parameters(),
+                    lr=config.ppo.learning_rate,
+                    eps=1e-5,
+                )
+        else:
+            self.optimizer = optim.Adam(
+                self.network.parameters(),
+                lr=config.ppo.learning_rate,
+                eps=1e-5,
+            )
 
         self.scheduler = optim.lr_scheduler.LinearLR(
             self.optimizer,
@@ -159,6 +199,14 @@ class PPOAgent:
         self.max_grad_norm = config.ppo.max_grad_norm
         self.ppo_epochs = config.ppo.ppo_epochs
 
+        self.gradient_accumulation_steps = getattr(config.hpc, 'gradient_accumulation', 1)
+
+        self.use_cuda_graphs = (
+            getattr(config.hpc, 'cuda_graphs', False) and torch.cuda.is_available() and self.device.type == 'cuda'
+        )
+        self.cuda_graph = None
+        self.static_input = None
+
         self.total_timesteps = 0
         self.episode_count = 0
         self.best_reward = float('-inf')
@@ -172,6 +220,78 @@ class PPOAgent:
         )
 
         self.training_metrics = defaultdict(list)
+
+    def _prepare_cuda_graph(self, sample_batch: dict) -> None:
+        """Prepare CUDA graph for the update step."""
+        if not self.use_cuda_graphs or self.cuda_graph is not None:
+            return
+
+        try:
+            self.static_input = {
+                'observations': torch.zeros_like(sample_batch['observations']),
+                'actions': torch.zeros_like(sample_batch['actions']),
+                'old_log_probs': torch.zeros_like(sample_batch['old_log_probs']),
+                'old_values': torch.zeros_like(sample_batch['old_values']),
+                'advantages': torch.zeros_like(sample_batch['advantages']),
+                'returns': torch.zeros_like(sample_batch['returns']),
+            }
+
+            for _ in range(3):
+                self._update_step_cuda_graph(self.static_input)
+                torch.cuda.synchronize()
+
+            self.cuda_graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(self.cuda_graph):
+                self._update_step_cuda_graph(self.static_input)
+
+        except Exception:
+            self.use_cuda_graphs = False
+            self.cuda_graph = None
+
+    def _update_step_cuda_graph(self, batch: dict) -> None:
+        """Single update step for CUDA graph capture."""
+        if self.use_mixed_precision:
+            with torch.amp.autocast('cuda'):
+                log_probs, values, entropy = self.network.evaluate_actions(batch['observations'], batch['actions'])
+                ratio = torch.exp(log_probs - batch['old_log_probs'])
+                surr1 = ratio * batch['advantages']
+                surr2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * batch['advantages']
+                policy_loss = -torch.min(surr1, surr2).mean()
+
+                if getattr(self.config.ppo, 'use_value_clip', True):
+                    value_pred_clipped = batch['old_values'] + torch.clamp(
+                        values - batch['old_values'], -self.clip_epsilon, self.clip_epsilon
+                    )
+                    value_loss1 = (values - batch['returns']).pow(2)
+                    value_loss2 = (value_pred_clipped - batch['returns']).pow(2)
+                    value_loss = 0.5 * torch.max(value_loss1, value_loss2).mean()
+                else:
+                    value_loss = 0.5 * (values - batch['returns']).pow(2).mean()
+
+                total_loss = policy_loss + self.value_loss_coeff * value_loss - self.entropy_coeff * entropy.mean()
+
+            total_loss = total_loss / self.gradient_accumulation_steps
+            self.scaler.scale(total_loss).backward()
+        else:
+            log_probs, values, entropy = self.network.evaluate_actions(batch['observations'], batch['actions'])
+            ratio = torch.exp(log_probs - batch['old_log_probs'])
+            surr1 = ratio * batch['advantages']
+            surr2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * batch['advantages']
+            policy_loss = -torch.min(surr1, surr2).mean()
+
+            if getattr(self.config.ppo, 'use_value_clip', True):
+                value_pred_clipped = batch['old_values'] + torch.clamp(
+                    values - batch['old_values'], -self.clip_epsilon, self.clip_epsilon
+                )
+                value_loss1 = (values - batch['returns']).pow(2)
+                value_loss2 = (value_pred_clipped - batch['returns']).pow(2)
+                value_loss = 0.5 * torch.max(value_loss1, value_loss2).mean()
+            else:
+                value_loss = 0.5 * (values - batch['returns']).pow(2).mean()
+
+            total_loss = policy_loss + self.value_loss_coeff * value_loss - self.entropy_coeff * entropy.mean()
+            total_loss = total_loss / self.gradient_accumulation_steps
+            total_loss.backward()
 
     def get_action(self, observation: np.ndarray, deterministic: bool = False) -> tuple[int, float, float]:
         """Get action from observation.
@@ -299,9 +419,7 @@ class PPOAgent:
         entropies = []
         clip_fractions = []
 
-        # Use direct tensors if provided, otherwise use memory
         if observations is not None:
-            # Direct tensor mode - create single batch
             batch_size = self.config.ppo.mini_batch_size
             total_samples = observations.shape[0]
 
@@ -318,13 +436,12 @@ class PPOAgent:
                 }
                 batches.append(batch_data)
         else:
-            # Memory mode - use existing memory system
             batches = list(self.memory.get_batches(self.config.ppo.mini_batch_size))
 
         for _epoch in range(self.ppo_epochs):
             for batch in batches:
                 if self.use_mixed_precision:
-                    with torch.cuda.amp.autocast():
+                    with torch.amp.autocast('cuda'):
                         log_probs, values, entropy = self.network.evaluate_actions(
                             batch['observations'],
                             batch['actions'],
@@ -335,14 +452,17 @@ class PPOAgent:
                         surr2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * batch['advantages']
                         policy_loss = -torch.min(surr1, surr2).mean()
 
-                        value_pred_clipped = batch['old_values'] + torch.clamp(
-                            values - batch['old_values'],
-                            -self.clip_epsilon,
-                            self.clip_epsilon,
-                        )
-                        value_loss1 = (values - batch['returns']).pow(2)
-                        value_loss2 = (value_pred_clipped - batch['returns']).pow(2)
-                        value_loss = 0.5 * torch.max(value_loss1, value_loss2).mean()
+                        if getattr(self.config.ppo, 'use_value_clip', True):
+                            value_pred_clipped = batch['old_values'] + torch.clamp(
+                                values - batch['old_values'],
+                                -self.clip_epsilon,
+                                self.clip_epsilon,
+                            )
+                            value_loss1 = (values - batch['returns']).pow(2)
+                            value_loss2 = (value_pred_clipped - batch['returns']).pow(2)
+                            value_loss = 0.5 * torch.max(value_loss1, value_loss2).mean()
+                        else:
+                            value_loss = 0.5 * (values - batch['returns']).pow(2).mean()
 
                         total_loss = (
                             policy_loss + self.value_loss_coeff * value_loss - self.entropy_coeff * entropy.mean()
@@ -365,14 +485,17 @@ class PPOAgent:
                     surr2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * batch['advantages']
                     policy_loss = -torch.min(surr1, surr2).mean()
 
-                    value_pred_clipped = batch['old_values'] + torch.clamp(
-                        values - batch['old_values'],
-                        -self.clip_epsilon,
-                        self.clip_epsilon,
-                    )
-                    value_loss1 = (values - batch['returns']).pow(2)
-                    value_loss2 = (value_pred_clipped - batch['returns']).pow(2)
-                    value_loss = 0.5 * torch.max(value_loss1, value_loss2).mean()
+                    if getattr(self.config.ppo, 'use_value_clip', True):
+                        value_pred_clipped = batch['old_values'] + torch.clamp(
+                            values - batch['old_values'],
+                            -self.clip_epsilon,
+                            self.clip_epsilon,
+                        )
+                        value_loss1 = (values - batch['returns']).pow(2)
+                        value_loss2 = (value_pred_clipped - batch['returns']).pow(2)
+                        value_loss = 0.5 * torch.max(value_loss1, value_loss2).mean()
+                    else:
+                        value_loss = 0.5 * (values - batch['returns']).pow(2).mean()
 
                     total_loss = policy_loss + self.value_loss_coeff * value_loss - self.entropy_coeff * entropy.mean()
 
@@ -476,44 +599,3 @@ class PPOAgent:
         self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         self.total_timesteps = checkpoint['total_timesteps']
         self.best_reward = checkpoint['best_reward']
-
-    def test(self, env: CarRacingEnvironment, logger, num_episodes: int = 10) -> None:
-        """Test the trained agent."""
-        logger.info(f'Testing agent for {num_episodes} episodes')
-
-        self.network.eval()
-        episode_rewards = []
-
-        for episode in range(num_episodes):
-            obs, _ = env.reset()
-            episode_reward = 0
-            done = False
-
-            while not done:
-                action, _, _ = self.get_action(obs, deterministic=True)
-                obs, reward, terminated, truncated, _info = env.step(action)
-                episode_reward += reward
-                done = terminated or truncated
-
-                if hasattr(env, 'render'):
-                    env.render()
-
-            episode_rewards.append(episode_reward)
-            logger.info(f'Test Episode {episode + 1}: Reward = {episode_reward:.2f}')
-
-        avg_reward = np.mean(episode_rewards)
-        std_reward = np.std(episode_rewards)
-
-        logger.info(f'Test Results: Average Reward = {avg_reward:.2f} ± {std_reward:.2f}')
-        logger.log_metrics(
-            {
-                'test_reward_mean': avg_reward,
-                'test_reward_std': std_reward,
-                'test_episodes': num_episodes,
-            }
-        )
-
-    def demo(self, env: CarRacingEnvironment, logger) -> None:
-        """Run a demonstration."""
-        logger.info('Running demonstration')
-        self.test(env, logger, num_episodes=1)
