@@ -1,0 +1,57 @@
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "D203",
+  "D213", 
+  "T201",
+  "ANN401", # Allow Any type annotations for config objects
+  "ANN001", # Allow missing type annotations for function arguments (especially test fixtures)
+  "ANN003", # Allow missing type annotations for **kwargs
+  "ANN202", # Allow missing return type annotations for private functions
+  "S101", # Allow assert in tests
+  "PLR2004", # Allow magic values in tests
+  "NPY002", # Allow legacy numpy random calls in tests
+  "ARG002", # Allow unused arguments in tests (fixtures)
+  "SLF001", # Allow private member access in tests
+  "FBT001", # Allow boolean positional arguments
+  "FBT002", # Allow boolean default arguments
+  "INP001", # Allow implicit namespace packages
+  "D100", # Allow missing module docstrings
+  "PTH123", # Allow open() instead of Path.open()
+  "PLC0415", # Allow imports inside functions
+  "PD901", # Allow generic DataFrame variable names
+  "PYI034", # Allow __enter__ returning self
+  "PYI036", # Allow object in __exit__
+  "DTZ005", # Allow datetime.now() without timezone
+  "D401", # Allow non-imperative docstrings
+  "D205", # Allow missing blank line in docstrings
+  "D104", # Allow missing package docstrings
+  "G004", # Allow f-strings in logging
+  "N812", # Allow F import for functional
+  "PLR0913", # Allow many arguments in functions
+  "E501", # Allow long lines (already set line-length)
+  "E722", # Allow bare except in specific cases
+  "PERF203", # Allow try-except in loops
+  "PLR1704", # Allow redefining argument names
+  "S603", # Allow subprocess calls
+  "TRY300", # Allow statements after try
+  "ANN201", # Allow missing return type annotations
+  "ARG001", # Allow unused function arguments
+  "FBT003", # Allow boolean values in function calls
+  "N802", # Allow non-lowercase function names
+  "COM812", # Avoid conflicts with formatter
+  "Q000", # Avoid conflicts with quote style
+  "Q003", # Avoid conflicts with quote style
+  "RUF059", # Allow unused unpacked variables
+]
+
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+skip-magic-trailing-comma = false
