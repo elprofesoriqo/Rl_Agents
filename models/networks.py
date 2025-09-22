@@ -40,7 +40,6 @@ class CNNFeatureExtractor(nn.Module):
         self.input_channels = input_channels
         self.features_dim = features_dim
 
-        # Convolutional layers - based on successful CarRacing architectures
         self.conv_layers = nn.Sequential(
             # First conv layer: 84x84x4 -> 20x20x32
             nn.Conv2d(input_channels, 32, kernel_size=8, stride=4, padding=0),
@@ -53,19 +52,16 @@ class CNNFeatureExtractor(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-        # Calculate the size of flattened features
         with torch.no_grad():
             dummy_input = torch.zeros(1, input_channels, 84, 84)
             conv_output = self.conv_layers(dummy_input)
             self.conv_output_size = conv_output.numel()
 
-        # Fully connected layer to get desired feature dimension
         self.fc = nn.Sequential(
             nn.Linear(self.conv_output_size, features_dim),
             nn.ReLU(inplace=True),
         )
 
-        # Initialize weights
         self.apply(lambda m: init_weights(m, 'orthogonal'))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -82,11 +78,9 @@ class CNNFeatureExtractor(nn.Module):
         if x.max() > 1.0:
             x = x.float() / 255.0
 
-        # Pass through convolutional layers
         conv_features = self.conv_layers(x)
 
-        # Flatten and pass through fully connected layer
-        flattened = conv_features.view(conv_features.size(0), -1)
+        flattened = conv_features.reshape(conv_features.size(0), -1)
         return self.fc(flattened)
 
 
@@ -110,7 +104,6 @@ class ActorNetwork(nn.Module):
         self.features_dim = features_dim
         self.action_dim = action_dim
 
-        # Build network layers
         layers = []
         input_dim = features_dim
 
@@ -123,15 +116,12 @@ class ActorNetwork(nn.Module):
             )
             input_dim = hidden_dim
 
-        # Output layer for action logits
         layers.append(nn.Linear(input_dim, action_dim))
 
         self.network = nn.Sequential(*layers)
 
-        # Initialize weights
         self.apply(lambda m: init_weights(m, 'orthogonal'))
 
-        # Initialize final layer with smaller weights for better exploration
         if len(self.network) > 0:
             nn.init.orthogonal_(self.network[-1].weight, gain=0.01)
 
@@ -176,7 +166,6 @@ class CriticNetwork(nn.Module):
 
         self.features_dim = features_dim
 
-        # Build network layers
         layers = []
         input_dim = features_dim
 
@@ -189,12 +178,10 @@ class CriticNetwork(nn.Module):
             )
             input_dim = hidden_dim
 
-        # Output layer for value estimation
         layers.append(nn.Linear(input_dim, 1))
 
         self.network = nn.Sequential(*layers)
 
-        # Initialize weights
         self.apply(lambda m: init_weights(m, 'orthogonal'))
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
@@ -241,13 +228,11 @@ class ActorCriticNetwork(nn.Module):
         self.action_dim = action_dim
         self.features_dim = features_dim
 
-        # Shared CNN feature extractor
         self.feature_extractor = CNNFeatureExtractor(
             input_channels=input_channels,
             features_dim=features_dim,
         )
 
-        # Actor and Critic networks
         self.actor = ActorNetwork(
             features_dim=features_dim,
             action_dim=action_dim,
@@ -259,7 +244,6 @@ class ActorCriticNetwork(nn.Module):
             hidden_dims=hidden_dims,
         )
 
-        # Optional batch normalization and dropout
         self.use_batch_norm = use_batch_norm
         self.dropout_rate = dropout_rate
 
@@ -279,18 +263,14 @@ class ActorCriticNetwork(nn.Module):
             Tuple of (action_logits, value_estimates)
 
         """
-        # Extract features using shared CNN
         features = self.feature_extractor(observations)
 
-        # Apply optional batch normalization
         if self.use_batch_norm:
             features = self.batch_norm(features)
 
-        # Apply optional dropout
         if self.dropout_rate > 0 and self.training:
             features = self.dropout(features)
 
-        # Get actor and critic outputs
         action_logits = self.actor(features)
         value_estimates = self.critic(features)
 
@@ -307,8 +287,6 @@ class ActorCriticNetwork(nn.Module):
 
         """
         action_logits, values = self.forward(observations)
-
-        # Sample action from categorical distribution
         action_probs = F.softmax(action_logits, dim=-1)
         action_dist = torch.distributions.Categorical(action_probs)
         actions = action_dist.sample()
@@ -365,8 +343,8 @@ def create_ppo_network(config) -> ActorCriticNetwork:
     """
     return ActorCriticNetwork(
         input_channels=config.env.frame_stack,
-        action_dim=9,  # Fixed for our discrete action space
-        features_dim=512,  # Standard for CarRacing
+        action_dim=5,
+        features_dim=512,
         hidden_dims=config.network.hidden_dims,
         use_batch_norm=config.network.use_batch_norm,
         dropout_rate=config.network.dropout_rate,
