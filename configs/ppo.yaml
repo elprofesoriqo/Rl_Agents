@@ -1,0 +1,82 @@
+env:
+  name: "CarRacing-v3"
+  render_mode: null
+  frame_stack: 4
+  frame_skip: 4
+  img_size: [84, 84]
+  grayscale: true
+  normalize: true
+  discrete_actions: true
+  reward_shaping: false
+  max_episode_steps: 1000
+
+network:
+  hidden_dims: [512, 256]
+  activation: "relu"
+  use_batch_norm: false
+  dropout_rate: 0.0
+  init_method: "orthogonal"
+
+ppo:
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_loss_coeff: 0.5
+  entropy_coeff: 0.01
+  max_grad_norm: 0.5
+  ppo_epochs: 4
+  batch_size: 128
+  mini_batch_size: 64
+  use_value_clip: true
+  normalize_advantages: true
+
+training:
+  total_timesteps: 2000000
+  n_parallel_envs: 8
+  rollout_steps: 1024
+  save_interval: 50000
+  eval_interval: 25000
+  eval_episodes: 3
+  mixed_precision: false    # NO HCP
+  gradient_checkpointing: false
+
+hcp:
+  device: "cuda"
+  num_workers: 8
+  pin_memory: true
+  non_blocking: true
+  compile_model: false
+  distributed: false
+  world_size: 1
+  rank: 0
+  backend: "nccl"
+  
+  # NO HCP
+  channels_last: false
+  cuda_graphs: false
+  gradient_accumulation: 1
+  fused_optimizer: false
+  tensorcore_precision: "mixed" 
+
+replay_buffer:
+  capacity: 10000          
+  batch_size: 32
+  min_size: 1000
+  buffer_type: "prioritized"  
+  alpha: 0.7                  
+  beta_start: 0.5         
+  beta_steps: 100000   
+  epsilon: 1e-6     
+  
+  gpu_buffer: true
+
+logging:
+  log_dir: "logs/normal"
+  tensorboard: true
+  excel: true
+  console_level: "INFO"
+  file_level: "DEBUG"
+  save_videos: true
+  video_interval: 10000
+  profiler: false         

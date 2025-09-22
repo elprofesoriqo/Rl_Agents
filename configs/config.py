@@ -12,7 +12,7 @@ import yaml
 class EnvironmentConfig:
     """Environment configuration."""
 
-    name: str = 'CarRacing-v2'
+    name: str = 'CarRacing-v3'
     render_mode: str | None = None
     frame_stack: int = 4
     frame_skip: int = 4
@@ -23,8 +23,7 @@ class EnvironmentConfig:
     reward_shaping: bool = True
     max_episode_steps: int = 1000
 
-    # Advanced reward shaping parameters
-    reward_shaper_type: str = 'basic'  # 'basic', 'adaptive', 'curriculum'
+    reward_shaper_type: str = 'curriculum'  # 'basic', 'adaptive', 'curriculum'
     progress_reward_weight: float = 1.0
     speed_reward_weight: float = 0.1
     position_reward_weight: float = 0.5
@@ -60,6 +59,8 @@ class PPOConfig:
     ppo_epochs: int = 10
     batch_size: int = 64
     mini_batch_size: int = 32
+    use_value_clip: bool = True
+    normalize_advantages: bool = True
 
 
 @dataclass
@@ -90,12 +91,18 @@ class HPCConfig:
     rank: int = 0
     backend: str = 'nccl'  # nccl, gloo, mpi
 
+    # HCP optimizations
+    channels_last: bool = True  # Use channels-last memory format
+    cuda_graphs: bool = True  # Enable CUDA graphs for update loop
+    gradient_accumulation: int = 1  # Gradient accumulation steps
+    fused_optimizer: bool = True  # Use fused optimizer variants
+    tensorcore_precision: str = 'mixed'  # 'mixed', 'fp16', 'bf16'
+
 
 @dataclass
 class ReplayBufferConfig:
     """Replay buffer configuration."""
 
-    # Buffer settings
     capacity: int = 100000
     batch_size: int = 32
     min_size: int = 1000
@@ -122,6 +129,7 @@ class LoggingConfig:
     file_level: str = 'DEBUG'
     save_videos: bool = True
     video_interval: int = 10000
+    profiler: bool = False
 
 
 class Config:
@@ -176,12 +184,6 @@ class Config:
         if self.hpc.device == 'cuda' and not torch.cuda.is_available():
             print('Warning: CUDA not available, falling back to CPU')
             self.hpc.device = 'cpu'
-
-        if self.hpc.device == 'cuda':
-            gpu_memory = torch.cuda.get_device_properties(0).total_memory
-            if gpu_memory < 4e9:  # Less than 4GB
-                self.training.n_parallel_envs = min(self.training.n_parallel_envs, 4)
-                self.ppo.batch_size = min(self.ppo.batch_size, 32)
 
         if self.ppo.batch_size % self.ppo.mini_batch_size != 0:
             self.ppo.mini_batch_size = self.ppo.batch_size // 4
