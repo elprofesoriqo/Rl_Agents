@@ -19,7 +19,6 @@ class Logger:
         self.log_dir = Path(config.logging.log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create timestamped run directory
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.run_dir = self.log_dir / f'run_{timestamp}'
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -38,17 +37,21 @@ class Logger:
             self.excel_path = None
             self.metrics_data = None
 
+        self.txt_metrics_path = self.run_dir / 'metrics.txt'
+        self.txt_metrics_file = None
+        self._init_txt_metrics()
+
         self.step = 0
         self.episode = 0
 
         self.info('Logger initialized')
         self.info(f'Run directory: {self.run_dir}')
+        self.info(f'TXT metrics file: {self.txt_metrics_path}')
 
     def _setup_file_logging(self) -> None:
         """Set up file and console logging."""
         self.logger = logging.getLogger('PPOCarRacing')
         self.logger.setLevel(logging.DEBUG)
-
         self.logger.handlers.clear()
 
         console_handler = logging.StreamHandler()
@@ -69,13 +72,24 @@ class Logger:
         file_handler.setFormatter(file_format)
         self.logger.addHandler(file_handler)
 
+    def _init_txt_metrics(self) -> None:
+        """Initialize TXT metrics file with headers."""
+        try:
+            self.txt_metrics_file = open(self.txt_metrics_path, 'w', encoding='utf-8')
+            self.txt_metrics_file.write('# Training Metrics Log\n')
+            self.txt_metrics_file.write(f'# Started: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
+            self.txt_metrics_file.write(
+                '# Format: timestamp | step | episode | metric_name=value | metric_name=value | ...\n'
+            )
+            self.txt_metrics_file.write('#' + '=' * 80 + '\n')
+            self.txt_metrics_file.flush()
+        except Exception as e:
+            self.warning(f'Failed to initialize TXT metrics file: {e}')
+            self.txt_metrics_file = None
+
     def info(self, message: str) -> None:
         """Log info message."""
         self.logger.info(message)
-
-    def debug(self, message: str) -> None:
-        """Log debug message."""
-        self.logger.debug(message)
 
     def warning(self, message: str) -> None:
         """Log warning message."""
@@ -86,11 +100,10 @@ class Logger:
         self.logger.error(message)
 
     def log_metrics(self, metrics: dict[str, Any], step: int | None = None) -> None:
-        """Log metrics to TensorBoard and Excel."""
+        """Log metrics to TensorBoard, Excel, and TXT file."""
         if step is None:
             step = self.step
 
-        # Log to TensorBoard
         if self.tb_writer:
             for key, value in metrics.items():
                 if isinstance(value, (int, float)):
@@ -98,33 +111,46 @@ class Logger:
                 elif isinstance(value, torch.Tensor) and value.numel() == 1:
                     self.tb_writer.add_scalar(key, value.item(), step)
 
-        # Log to Excel
         if self.metrics_data is not None:
             metric_entry = {'step': step, 'timestamp': datetime.now()}
             metric_entry.update(metrics)
             self.metrics_data.append(metric_entry)
+            if len(self.metrics_data) % 100 == 0:
+                self.save_excel_metrics()
 
-    def log_episode(self, episode_metrics: dict[str, Any]) -> None:
-        """Log episode-specific metrics."""
-        self.episode += 1
-        episode_metrics['episode'] = self.episode
+        self._log_metrics_to_txt(metrics, step)
 
-        self.info(f'Episode {self.episode}: {episode_metrics}')
-        self.log_metrics(episode_metrics)
+    def _log_metrics_to_txt(self, metrics: dict[str, Any], step: int) -> None:
+        """Log metrics to TXT file in real-time."""
+        if self.txt_metrics_file is None:
+            return
 
-    def log_training_step(self, training_metrics: dict[str, Any]) -> None:
-        """Log training step metrics."""
-        self.step += 1
-        self.log_metrics(training_metrics, self.step)
+        try:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            episode = metrics.get('episode', self.episode)
+
+            metric_pairs = []
+            for key, value in metrics.items():
+                if key not in ['step', 'timestamp', 'episode']:
+                    if isinstance(value, float):
+                        metric_pairs.append(f'{key}={value:.4f}')
+                    elif isinstance(value, torch.Tensor) and value.numel() == 1:
+                        metric_pairs.append(f'{key}={value.item():.4f}')
+                    else:
+                        metric_pairs.append(f'{key}={value}')
+
+            line = f'{timestamp} | step={step} | episode={episode} | {" | ".join(metric_pairs)}\n'
+            self.txt_metrics_file.write(line)
+            self.txt_metrics_file.flush()
+
+        except Exception as e:
+            self.warning(f'Failed to write metrics to TXT file: {e}')
 
     def log_model_info(self, model: torch.nn.Module) -> None:
         """Log model architecture information."""
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
         self.info(f'Model parameters: {total_params:,} total, {trainable_params:,} trainable')
-
-        # Log model architecture to file
         with open(self.run_dir / 'model_architecture.txt', 'w') as f:
             f.write(str(model))
             f.write(f'\n\nTotal parameters: {total_params:,}')
@@ -138,29 +164,25 @@ class Logger:
     def save_excel_metrics(self) -> None:
         """Save metrics to Excel file."""
         if self.metrics_data and self.excel_path:
-            df = pd.DataFrame(self.metrics_data)
-
-            # Create Excel writer with multiple sheets
-            with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
-                # Main metrics sheet
-                df.to_excel(writer, sheet_name='Metrics', index=False)
-
-                # Summary statistics
-                numeric_cols = df.select_dtypes(include=['number']).columns
-                summary = df[numeric_cols].describe()
-                summary.to_excel(writer, sheet_name='Summary')
-
-                # Episode-wise metrics if available
-                episode_metrics = df[df['episode'].notna()] if 'episode' in df.columns else None
-                if episode_metrics is not None and not episode_metrics.empty:
-                    episode_metrics.to_excel(writer, sheet_name='Episodes', index=False)
-
-            self.info(f'Metrics saved to {self.excel_path}')
+            try:
+                df = pd.DataFrame(self.metrics_data)
+                with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
+                    df.to_excel(writer, sheet_name='Metrics', index=False)
+                    numeric_cols = df.select_dtypes(include=['number']).columns
+                    if len(numeric_cols) > 0:
+                        summary = df[numeric_cols].describe()
+                        summary.to_excel(writer, sheet_name='Summary')
+                    episode_metrics = df[df['episode'].notna()] if 'episode' in df.columns else None
+                    if episode_metrics is not None and not episode_metrics.empty:
+                        episode_metrics.to_excel(writer, sheet_name='Episodes', index=False)
+                if len(self.metrics_data) % 1000 == 0:
+                    self.info(f'Metrics saved to {self.excel_path} ({len(self.metrics_data)} entries)')
+            except Exception as e:
+                self.warning(f'Failed to save Excel metrics: {e}')
 
     def log_system_info(self) -> None:
         """Log system information."""
         import platform
-
         import psutil
 
         system_info = {
@@ -184,7 +206,6 @@ class Logger:
         for key, value in system_info.items():
             self.info(f'  {key}: {value}')
 
-        # Save to file
         with open(self.run_dir / 'system_info.txt', 'w') as f:
             for key, value in system_info.items():
                 f.write(f'{key}: {value}\n')
@@ -193,18 +214,21 @@ class Logger:
         """Close logger and save final metrics."""
         if self.tb_writer:
             self.tb_writer.close()
-
         if self.metrics_data:
             self.save_excel_metrics()
-
+        if self.txt_metrics_file:
+            try:
+                self.txt_metrics_file.write(f'\n# Training ended: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
+                self.txt_metrics_file.close()
+                self.info(f'TXT metrics saved: {self.txt_metrics_path}')
+            except Exception as e:
+                self.warning(f'Failed to close TXT metrics file: {e}')
         self.info('Logger closed')
 
     def __enter__(self) -> Logger:
-        """Context manager entry."""
         return self
 
     def __exit__(
         self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object | None
     ) -> None:
-        """Context manager exit."""
         self.close()
